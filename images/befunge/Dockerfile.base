@@ -1,0 +1,21 @@
+FROM alpine:3.19
+
+ONBUILD RUN apk add --no-cache \
+    build-base \
+    git
+
+ONBUILD RUN git clone https://github.com/catseye/Befunge-93.git /befunge
+
+ONBUILD WORKDIR /befunge
+
+ONBUILD RUN make
+
+ONBUILD RUN cp bin/bef /usr/local/bin
+
+ONBUILD RUN rm -rf /befunge
+
+ONBUILD COPY . /app
+
+ONBUILD WORKDIR /app
+
+ONBUILD CMD ["bef", "app/main.bf"]

@@ -1,0 +1,13 @@
+FROM gcc:13.2
+
+SHELL ["/bin/bash", "-c"]
+
+COPY . /app
+
+WORKDIR /app
+
+RUN make
+
+RUN rm -rf Makefile app
+
+CMD ["./compiled-app"]

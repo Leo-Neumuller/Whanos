@@ -1,0 +1,136 @@
+- name: Add Jenkins APT key
+  apt_key:
+    url: https://pkg.jenkins.io/debian/jenkins.io-2023.key
+    state: present
+
+- name: Add Jenkins APT repository
+  apt_repository:
+    repo: "deb http://pkg.jenkins.io/debian-stable binary/"
+    state: present
+
+- name: Install Jenkins
+  apt:
+    name: jenkins
+    state: present
+  register: Install_Jenkins
+
+- name: Start Jenkins service
+  service:
+    name: jenkins
+    state: started
+    enabled: true
+  when: Install_Jenkins.changed
+
+- name: Wait for Jenkins
+  service_facts:
+  register: result
+  until: result.ansible_facts.services['jenkins'].state == 'running'
+  retries: 10
+  delay: 5
+  when: Install_Jenkins.changed
+
+- name: Add jenkins user to docker group
+  ansible.builtin.user:
+    name: jenkins
+    groups: docker
+    append: yes
+
+- name: Read admin password from file
+  shell: cat /var/lib/jenkins/secrets/initialAdminPassword
+  register: password_output
+
+- name: Jenkins Skip startUp for MI
+  lineinfile:
+    dest=/usr/lib/systemd/system/jenkins.service
+    regexp='^Environment="JAVA_OPTS=-Djava.awt.headless=true'
+    line='Environment="JAVA_OPTS=-Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"'
+  register: result_skip_startup_wizard
+
+- name: Restart jenkins and daemon reload
+  ansible.builtin.systemd:
+    state: restarted
+    daemon_reload: true
+    name: jenkins
+  when: result_skip_startup_wizard.changed
+
+- name: Wait for Jenkins
+  service_facts:
+  register: result
+  until: result.ansible_facts.services['jenkins'].state == 'running'
+  retries: 10
+  delay: 5
+  when: result_skip_startup_wizard.changed
+
+- name: Install Jenkins Plugins from plugins.txt
+  jenkins_plugin:
+    name: "{{ item }}"
+    state: latest
+    jenkins_home: "/var/lib/jenkins"
+    url_username: admin
+    url_password: "{{ password_output.stdout | trim }}"
+  loop: "{{ lookup('file', 'files/plugins.txt').splitlines() }}"
+  become: true
+  notify: Restart Jenkins
+  register: plugin_install
+  until: plugin_install is success
+
+- name: Restart jenkins
+  ansible.builtin.systemd:
+    state: restarted
+    name: jenkins
+  when: plugin_install.changed
+
+- name: Create a directory if it does not exist
+  ansible.builtin.file:
+    path: /var/lib/jenkins/casc_configs/
+    state: directory
+    mode: '0755'
+
+- name: Copy configuration and restart
+  ansible.builtin.copy:
+    src: files/whanos.yml
+    dest: /var/lib/jenkins/casc_configs/jenkins.yml
+  notify: Restart Jenkins
+  register: copy_config
+
+- name: Copy job_dls
+  ansible.builtin.copy:
+    src: files/job_dsl.groovy
+    dest: /usr/local/job_dsl.groovy
+    owner: jenkins
+    group: jenkins
+  register: copy_config
+
+- name: Configure jcasc plugin and apply configuration
+  jenkins_script:
+    script: "{{ lookup('file', 'files/configure.groovy') }}"
+    user: admin
+    password: "{{ password_output.stdout | trim }}"
+    args:
+      jcasc_path: "/var/lib/jenkins/casc_configs/jenkins.yml"
+  when: copy_config.changed
+
+- name: Reload Jenkins configuration as code configuration
+  jenkins_script:
+    script: "{{ lookup('file', 'files/reload.groovy') }}"
+    user: admin
+    password: "{{ password_output.stdout | trim }}"
+    args:
+      jcasc_path: "/var/lib/jenkins/casc_configs/jenkins.yml"
+  when: copy_config.changed
+
+- name: Copy images
+  ansible.builtin.copy:
+    src: ../../images/
+    dest: /usr/local/images/
+    owner: jenkins
+    group: jenkins
+  register: copy_images
+
+- name: Copy deploy script
+  ansible.builtin.copy:
+    src: ../../ImageDeployment.sh
+    dest: /usr/local/ImageDeployment.sh
+    owner: jenkins
+    group: jenkins
+  register: copy_script

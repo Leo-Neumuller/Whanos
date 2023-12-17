@@ -1,0 +1,15 @@
+FROM maven:3-eclipse-temurin-21
+
+COPY . /app
+
+WORKDIR /app
+
+RUN mvn compile -f app/pom.xml
+
+RUN mvn package -f app/pom.xml
+
+RUN cp app/target/app.jar .
+
+RUN rm -rf app
+
+CMD ["java", "-jar", "app.jar"]

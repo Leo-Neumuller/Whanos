@@ -1,0 +1,6 @@
+configuration-as-code
+credentials
+github
+role-strategy
+job-dsl
+ws-cleanup

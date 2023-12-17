@@ -1,0 +1,7 @@
+inventory.yml
+*.prv
+*.pub
+whanos_example_apps/
+kube-config
+roles/helm/
+.vscode
